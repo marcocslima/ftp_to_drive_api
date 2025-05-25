@@ -4,15 +4,18 @@ import os
 from os.path import isdir, isfile, join
 import time
 import shutil
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Configurações
-host = "ediac.correios.com.br"
-port = 21  # Use 990 para FTPS
-usuario = "563793"
-senha = "ryj537@3>"
-directory = "/E-carta"
-downloads_folder = "arquivos/download"  # Pasta local no Colab
-unzip_files_folder = "arquivos/unzip_files"  # Pasta local no Colab
+host = os.getenv('HOST')
+port = os.getenv('PORT')
+usuario = os.getenv('USER')
+senha = os.getenv('PASSWORD')
+directory = os.getenv('DIRECTORY')
+downloads_folder = os.getenv('DOWNLOADS_FOLDER')
+unzip_files_folder = os.getenv('UNZIP_FILES_FOLDER')
 
 def limpar_pasta(folder):
   # Verificar se o diretório existe

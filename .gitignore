@@ -6,6 +6,11 @@ __pycache__/
 # Credentials folder
 credentials/
 
+# files created in tests
+*.zip
+*.txt
+*.pdf
+
 # C extensions
 *.so
 

@@ -1,3 +1,4 @@
+import os
 import os.path
 import mimetypes # Para adivinhar o tipo MIME do arquivo
 from google.auth.transport.requests import Request
@@ -6,6 +7,11 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
+from dotenv import load_dotenv
+
+load_dotenv()
+
+tg_folder_id = os.getenv('TARGET_FOLDER_ID')
 
 # Se modificar esses escopos, delete o arquivo token.json.
 SCOPES = ['https://www.googleapis.com/auth/drive'] # Escopo completo para Drive
@@ -90,7 +96,6 @@ if __name__ == '__main__':
     #    Você pode pegar o ID da URL da pasta no Google Drive.
     #    Ex: se a URL é https://drive.google.com/drive/u/0/folders/SEU_ID_DA_PASTA
     #    então o folder_id é 'SEU_ID_DA_PASTA'
-    TARGET_FOLDER_ID = '1qpEBWglQbUH2m6Gh1R8_AfwNnztxVYDi' # <--- SUBSTITUA ISSO
 
     # 2. Crie um arquivo de exemplo para testar (ou use um existente)
     example_file_path = 'meu_arquivo_de_teste.txt'
@@ -100,10 +105,10 @@ if __name__ == '__main__':
 
     drive_service = get_drive_service()
     if drive_service:
-        print(f"Tentando fazer upload do arquivo '{example_file_path}' para a pasta ID '{TARGET_FOLDER_ID}'...")
+        print(f"Tentando fazer upload do arquivo '{example_file_path}' para a pasta ID '{tg_folder_id}'...")
         # Você pode especificar um nome diferente para o arquivo no Drive:
-        # upload_file_to_folder(drive_service, example_file_path, TARGET_FOLDER_ID, drive_filename="arquivo_no_drive.txt")
-        upload_file_to_folder(drive_service, example_file_path, TARGET_FOLDER_ID)
+        # upload_file_to_folder(drive_service, example_file_path, tg_folder_id, dritg_folder_iduivo_no_drive.txt")
+        upload_file_to_folder(drive_service, example_file_path, tg_folder_id)
 
         # Limpeza do arquivo de exemplo (opcional)
         # if os.path.exists(example_file_path):
