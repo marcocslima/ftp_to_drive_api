@@ -2,12 +2,18 @@ from get_files import *
 from upload_ftp import *
 import os
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 
 tg_folder_id = os.getenv('TARGET_FOLDER_ID')
 
 if __name__ == "__main__":
+    
+    # --- Início do cronômetro ---
+    start_time = time.perf_counter()
+    # --------------------------
+
     limpar_pasta(downloads_folder)
     limpar_pasta(unzip_files_folder)
 
@@ -30,3 +36,11 @@ if __name__ == "__main__":
           upload_file_to_folder(drive_service, f, tg_folder_id)
     else:
       print("Falha ao obter o serviço do Google Drive.")
+
+    # --- Fim do cronômetro ---
+    end_time = time.perf_counter()
+    # ------------------------
+
+    elapsed_time = end_time - start_time
+    print("\nProcesso concluído!")
+    print(f"Tempo total de execução: {elapsed_time:.2f} segundos") # 2 casas decimais

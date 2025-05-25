@@ -10,6 +10,8 @@ credentials/
 *.zip
 *.txt
 *.pdf
+*.TXT
+*.PDF
 
 # C extensions
 *.so

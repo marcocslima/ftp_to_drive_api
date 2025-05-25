@@ -6,12 +6,14 @@ import time
 import shutil
 from dotenv import load_dotenv
 
+
+
 load_dotenv()
 
 # Configurações
 host = os.getenv('HOST')
-port = os.getenv('PORT')
-usuario = os.getenv('USER')
+port = int(os.getenv('PORT', 21))
+usuario = os.getenv('USER_ECARTA')
 senha = os.getenv('PASSWORD')
 directory = os.getenv('DIRECTORY')
 downloads_folder = os.getenv('DOWNLOADS_FOLDER')
@@ -67,7 +69,7 @@ def download_files_from_ftp(host, port, usuario, senha, directory, downloads_fol
         ftp.quit()
 
     except Exception as e:
-        print(f"Erro: {e}")
+        print(f"Erro ao conectar ou baixar arquivos do FTP: {e}")
 
 
 def descompactar_zip(caminho_arquivo_zip, pasta_destino):
