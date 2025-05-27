@@ -5,7 +5,7 @@ from os.path import isdir, isfile, join
 import time
 import shutil
 from dotenv import load_dotenv
-
+from aux import resource_path
 
 
 load_dotenv()
@@ -16,8 +16,8 @@ port = int(os.getenv('PORT', 21))
 usuario = os.getenv('USER_ECARTA')
 senha = os.getenv('PASSWORD')
 directory = os.getenv('DIRECTORY')
-downloads_folder = os.getenv('DOWNLOADS_FOLDER')
-unzip_files_folder = os.getenv('UNZIP_FILES_FOLDER')
+downloads_folder = resource_path(os.getenv('DOWNLOADS_FOLDER'))
+unzip_files_folder = resource_path(os.getenv('UNZIP_FILES_FOLDER'))
 
 def limpar_pasta(folder):
   # Verificar se o diretório existe

@@ -8,6 +8,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 from dotenv import load_dotenv
+from aux import resource_path
 
 load_dotenv()
 
@@ -17,8 +18,8 @@ tg_folder_id = os.getenv('TARGET_FOLDER_ID')
 SCOPES = ['https://www.googleapis.com/auth/drive'] # Escopo completo para Drive
 # SCOPES = ['https://www.googleapis.com/auth/drive.file'] # Escopo para arquivos criados pelo app
 
-TOKEN_FILE = 'credentials/token.json'
-CREDENTIALS_FILE = 'credentials/credentials.json' # Arquivo baixado do Google Cloud Console
+TOKEN_FILE = resource_path('credentials/token.json')
+CREDENTIALS_FILE = resource_path('credentials/credentials.json') # Arquivo baixado do Google Cloud Console
 
 def get_drive_service():
     """Mostra o fluxo de login e cria o serviço da API do Drive."""
