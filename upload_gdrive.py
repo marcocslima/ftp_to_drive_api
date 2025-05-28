@@ -136,7 +136,7 @@ def upload_file_to_folder(service, local_file_path, folder_id, drive_filename=No
 # O bloco if __name__ == '__main__': abaixo é para teste direto deste arquivo.
 # Ele não será executado quando este arquivo for importado como um módulo.
 if __name__ == '__main__':
-    print("--- Testando módulo de upload para Google Drive (upload_ftp.py) ---")
+    print("--- Testando módulo de upload para Google Drive (upload_gdrive.py) ---")
     
     # Carrega o ID da pasta do .env para o teste
     # Se não for definido no .env, tg_folder_id será None

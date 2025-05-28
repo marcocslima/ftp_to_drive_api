@@ -1,111 +1,111 @@
-# files_to_drive.py
 import os
 from dotenv import load_dotenv
 import time
 
 try:
     import ecarta_processor
-except ImportError as e:
-    print(f"ERRO: Não foi possível importar 'ecarta_processor.py': {e}")
-    exit()
-try:
-    import upload_gdrive as gdrive_uploader # Alias para o módulo do Drive
-except ImportError as e:
-    print(f"ERRO: Não foi possível importar 'upload_ftp.py' (módulo do Drive): {e}")
-    exit()
+    import upload_gdrive as gdrive_uploader # Módulo do Drive
+except ImportError as e: print(f"ERRO de importação: {e}"); exit()
 
 load_dotenv()
 
-TARGET_DRIVE_FOLDER_ID = os.getenv('TARGET_FOLDER_ID')
+TARGET_DRIVE_FOLDER_ID_PRINCIPAL = os.getenv('TARGET_FOLDER_ID')
+TARGET_DRIVE_FOLDER_ID_DEVOLUCAOAR_ARCHIVE = os.getenv('TARGET_FOLDER_ID_DEVOLUCAOAR_ARCHIVE') # Nova pasta
 
-# Configurações de FTP para exclusão (são as mesmas do download)
-HOST_FTP_EXCLUSAO = os.getenv('HOST')
-PORT_FTP_EXCLUSAO = int(os.getenv('PORT', 21))
-USUARIO_FTP_EXCLUSAO = os.getenv('USER_ECARTA')
-SENHA_FTP_EXCLUSAO = os.getenv('PASSWORD')
-DIRETORIO_FTP_EXCLUSAO = os.getenv('DIRECTORY')
+HOST_FTP = os.getenv('HOST')
+PORT_FTP = int(os.getenv('PORT', 21))
+USUARIO_FTP = os.getenv('USER_ECARTA')
+SENHA_FTP = os.getenv('PASSWORD')
+DIRETORIO_FTP = os.getenv('DIRECTORY')
 
 
 if __name__ == "__main__":
-    if not TARGET_DRIVE_FOLDER_ID:
-        print("ERRO: TARGET_FOLDER_ID não definido no arquivo .env.")
+    if not TARGET_DRIVE_FOLDER_ID_PRINCIPAL or not TARGET_DRIVE_FOLDER_ID_DEVOLUCAOAR_ARCHIVE:
+        print("ERRO: IDs de pasta do Drive (TARGET_FOLDER_ID e/ou TARGET_FOLDER_ID_DEVOLUCAOAR_ARCHIVE) não definidos no .env.")
         exit()
 
-    print("--- Iniciando fluxo completo: Processamento eCarta e Upload para Google Drive ---")
+    print("--- Iniciando fluxo: Processamento eCarta, Uploads para Google Drive e Limpeza FTP ---")
     start_time_total = time.perf_counter()
-    fluxo_principal_sucesso = False # Flag para controlar a exclusão no FTP
+    processamento_local_ok = False
+    upload_pdfs_finais_ok = False
+    upload_arquivos_devolucaoAR_ok = False
 
     # 1. Processar arquivos eCarta
     print("\n--- Fase 1: Processamento de arquivos eCarta ---")
-    # Agora retorna: (caminho_da_pasta_com_arquivos_finais, lista_de_zips_processados_para_excluir)
-    resultado_processamento = ecarta_processor.processar_arquivos_ecarta_ftp()
+    # Retorna: (pasta_pdfs, nomes_TODOS_baixados_do_ftp, caminhos_locais_DevolucaoAR_originais)
+    resultado_proc = ecarta_processor.processar_arquivos_ecarta_ftp()
     
-    if resultado_processamento is None or resultado_processamento[0] is None:
-        print("Processamento eCarta falhou ou não retornou uma pasta de arquivos. Encerrando.")
+    if resultado_proc is None or resultado_proc[0] is None:
+        print("Processamento eCarta falhou ou não retornou pasta de arquivos. Encerrando.")
         exit()
     
-    pasta_com_arquivos_finais, nomes_zips_para_excluir_ftp = resultado_processamento
+    pasta_pdfs_finais, nomes_todos_arquivos_baixados_ftp, caminhos_locais_devolucaoAR_originais = resultado_proc
+    processamento_local_ok = True # Se chegou aqui, o processamento local básico funcionou
+
+    # 2. Upload dos PDFs FINAIS para a pasta principal do Drive
+    if not os.path.isdir(pasta_pdfs_finais):
+        print(f"ERRO: Pasta de PDFs finais '{pasta_pdfs_finais}' não é um diretório válido.")
+        processamento_local_ok = False # Marcar falha se a pasta não for válida
     
-    if not os.path.isdir(pasta_com_arquivos_finais):
-        print(f"ERRO: A pasta '{pasta_com_arquivos_finais}' não existe ou não é um diretório.")
-        exit()
-        
-    arquivos_para_upload = [
-        os.path.join(root, file_name)
-        for root, _, files in os.walk(pasta_com_arquivos_finais)
-        for file_name in files if os.path.isfile(os.path.join(root, file_name))
-    ]
+    arquivos_para_upload_principal = []
+    if processamento_local_ok:
+        arquivos_para_upload_principal = [
+            os.path.join(root, fn) for root, _, fns in os.walk(pasta_pdfs_finais) for fn in fns if os.path.isfile(os.path.join(root,fn))
+        ]
 
-    if not arquivos_para_upload:
-        print(f"Nenhum arquivo encontrado em '{pasta_com_arquivos_finais}' para fazer upload ao Google Drive.")
-        # Mesmo sem arquivos para upload, o processamento pode ter sido "bem-sucedido"
-        # em termos de identificar o que excluir do FTP.
-        fluxo_principal_sucesso = True # Considerar sucesso se chegou aqui sem erro crítico
-    else:
-        print(f"\n--- Fase 2: Upload para o Google Drive ({len(arquivos_para_upload)} arquivos) ---")
-        drive_service = gdrive_uploader.get_drive_service()
+    drive_service = gdrive_uploader.get_drive_service() # Obter serviço do Drive uma vez
 
-        if drive_service:
-            print(f"Iniciando upload para a pasta Drive ID: {TARGET_DRIVE_FOLDER_ID}")
-            sucessos_upload = 0
-            falhas_upload = 0
-            todos_uploads_ok = True # Assumir sucesso até que uma falha ocorra
-            for arquivo_path in arquivos_para_upload:
-                if gdrive_uploader.upload_file_to_folder(drive_service, arquivo_path, TARGET_DRIVE_FOLDER_ID, drive_filename=os.path.basename(arquivo_path)):
-                    sucessos_upload += 1
-                else:
-                    falhas_upload += 1
-                    todos_uploads_ok = False # Marcar que houve falha
-            print(f"Uploads para o Drive concluídos. Sucessos: {sucessos_upload}, Falhas: {falhas_upload}")
-            if todos_uploads_ok and sucessos_upload > 0 : # Só considerar sucesso se houve uploads e todos foram ok
-                fluxo_principal_sucesso = True
-            elif falhas_upload > 0:
-                 print("AVISO: Nem todos os arquivos foram enviados para o Google Drive com sucesso. A exclusão no FTP será pulada.")
-            elif sucessos_upload == 0 and len(arquivos_para_upload) > 0: # Havia arquivos, mas nenhum foi enviado
-                 print("AVISO: Nenhum arquivo foi enviado para o Google Drive. A exclusão no FTP será pulada.")
+    if not drive_service:
+        print("Falha ao obter o serviço do Google Drive. Todos os uploads e exclusão FTP serão pulados.")
+        processamento_local_ok = False # Não podemos prosseguir sem o serviço do Drive
+    
+    if processamento_local_ok and arquivos_para_upload_principal:
+        print(f"\n--- Fase 2.1: Upload de PDFs FINAIS para Drive (Pasta Principal: {TARGET_DRIVE_FOLDER_ID_PRINCIPAL}) ---")
+        sucesso = 0; falha = 0
+        for arq_path in arquivos_para_upload_principal:
+            if gdrive_uploader.upload_file_to_folder(drive_service, arq_path, TARGET_DRIVE_FOLDER_ID_PRINCIPAL):
+                sucesso += 1
+            else: falha += 1
+        print(f"Uploads de PDFs finais: {sucesso} sucesso(s), {falha} falha(s).")
+        if falha == 0 and sucesso > 0: upload_pdfs_finais_ok = True
+        elif falha == 0 and sucesso == 0 and len(arquivos_para_upload_principal) == 0: upload_pdfs_finais_ok = True # Ok se não havia nada para subir
+        else: print("AVISO: Falhas no upload dos PDFs finais.")
+    elif processamento_local_ok:
+        print("\nNenhum PDF final para upload na pasta principal do Drive.")
+        upload_pdfs_finais_ok = True # Considerar OK se não havia nada para subir
 
-        else:
-            print("Falha ao obter o serviço do Google Drive. Upload não realizado. A exclusão no FTP será pulada.")
+    # 3. Upload dos ARQUIVOS DEVOLUCAOAR ORIGINAIS para a pasta de arquivamento do Drive
+    if processamento_local_ok and caminhos_locais_devolucaoAR_originais:
+        print(f"\n--- Fase 2.2: Upload de ARQUIVOS DEVOLUCAOAR ORIGINAIS para Drive (Pasta Arquivo: {TARGET_DRIVE_FOLDER_ID_DEVOLUCAOAR_ARCHIVE}) ---")
+        sucesso_dev = 0; falha_dev = 0
+        for arq_dev_path in caminhos_locais_devolucaoAR_originais:
+            if os.path.exists(arq_dev_path): # Garantir que o arquivo original ainda existe
+                if gdrive_uploader.upload_file_to_folder(drive_service, arq_dev_path, TARGET_DRIVE_FOLDER_ID_DEVOLUCAOAR_ARCHIVE):
+                    sucesso_dev += 1
+                else: falha_dev += 1
+            else:
+                print(f"AVISO: Arquivo DevolucaoAR original '{arq_dev_path}' não encontrado localmente para upload de arquivamento.")
+                falha_dev +=1 # Considerar como falha se o arquivo sumiu
+        print(f"Uploads de arquivos DevolucaoAR originais: {sucesso_dev} sucesso(s), {falha_dev} falha(s).")
+        if falha_dev == 0 and sucesso_dev > 0 : upload_arquivos_devolucaoAR_ok = True
+        elif falha_dev == 0 and sucesso_dev == 0 and len(caminhos_locais_devolucaoAR_originais) == 0 : upload_arquivos_devolucaoAR_ok = True # Ok se não havia DevolucaoAR
+        else: print("AVISO: Falhas no upload dos arquivos DevolucaoAR originais.")
+    elif processamento_local_ok:
+        print("\nNenhum arquivo DevolucaoAR original para upload na pasta de arquivamento do Drive.")
+        upload_arquivos_devolucaoAR_ok = True # Considerar OK se não havia nada para subir
 
-    # 3. Excluir arquivos do FTP se tudo deu certo nas fases anteriores
-    # E se houver arquivos ZIP marcados para exclusão
-    if fluxo_principal_sucesso and nomes_zips_para_excluir_ftp:
-        print("\n--- Fase 3: Exclusão de arquivos processados do servidor FTP ---")
+
+    # 4. Excluir TODOS os arquivos baixados do servidor FTP se TUDO deu certo
+    if processamento_local_ok and upload_pdfs_finais_ok and upload_arquivos_devolucaoAR_ok and nomes_todos_arquivos_baixados_ftp:
+        print("\n--- Fase 3: Exclusão de TODOS os arquivos baixados do servidor FTP ---")
         ecarta_processor.excluir_arquivos_do_ftp(
-            HOST_FTP_EXCLUSAO,
-            PORT_FTP_EXCLUSAO,
-            USUARIO_FTP_EXCLUSAO,
-            SENHA_FTP_EXCLUSAO,
-            DIRETORIO_FTP_EXCLUSAO,
-            nomes_zips_para_excluir_ftp
+            HOST_FTP, PORT_FTP, USUARIO_FTP, SENHA_FTP, DIRETORIO_FTP,
+            nomes_todos_arquivos_baixados_ftp # Lista de NOMES dos arquivos no FTP
         )
-    elif fluxo_principal_sucesso and not nomes_zips_para_excluir_ftp:
-        print("\nNenhum arquivo ZIP marcado para exclusão no FTP (todos podem ser DevolucaoAR ou nenhum ZIP processado).")
+    elif not nomes_todos_arquivos_baixados_ftp:
+        print("\nNenhum arquivo foi baixado do FTP, portanto nada a excluir.")
     else:
-        print("\nExclusão de arquivos do FTP pulada devido a falhas no processamento ou upload.")
-
+        print("\nExclusão de arquivos do FTP pulada devido a falhas no processamento local ou nos uploads para o Drive.")
 
     end_time_total = time.perf_counter()
-    elapsed_time_total = end_time_total - start_time_total
-    print("\n--- Processo completo ---")
-    print(f"Tempo total de execução: {elapsed_time_total:.2f} segundos")
+    print(f"\n--- Processo completo ---\nTempo total: {end_time_total - start_time_total:.2f} segundos")
