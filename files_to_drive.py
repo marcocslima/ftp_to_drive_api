@@ -133,7 +133,7 @@ if __name__ == "__main__":
                     APPS_SCRIPT_ID, # <<< ID DO SCRIPT
                     APPS_SCRIPT_FUNCTION_NAME,
                     dev_mode=True # Para executar a API Executável implantada
-                    # deployment_id=APPS_SCRIPT_DEPLOYMENT_ID # Não passamos aqui para este teste
+                    #deployment_id=APPS_SCRIPT_DEPLOYMENT_ID # Não passamos aqui para este teste
                 )
                 if apps_script_response:
                     print("Solicitação para Apps Script enviada e processada (verifique o resultado acima).")

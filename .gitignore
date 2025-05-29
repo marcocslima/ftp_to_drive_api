@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Auxiliary folders and files
+arquivos/
+
 # Credentials folder
 credentials/
 
@@ -138,7 +141,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-#.env
+.env
 .venv
 env/
 venv/
