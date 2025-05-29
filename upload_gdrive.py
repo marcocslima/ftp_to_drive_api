@@ -1,3 +1,5 @@
+# upload_gdrive.py
+
 import os
 import mimetypes
 from google.auth.transport.requests import Request
@@ -7,162 +9,168 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 from dotenv import load_dotenv
+import traceback # Para o traceback.print_exc()
 
-# Importa a função resource_path do seu módulo aux
 try:
     from aux import resource_path
 except ImportError:
-    print("ERRO: Não foi possível importar 'resource_path' de 'aux.py'.")
-    print("Certifique-se de que 'aux.py' existe e está acessível.")
-    # Uma implementação fallback simples se aux não for encontrado,
-    # mas isso não lida com PyInstaller.
+    print("AVISO: Não foi possível importar 'resource_path' de 'aux.py'. Usando fallback.")
     def resource_path(relative_path):
-        return os.path.abspath(relative_path)
-
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base_path, relative_path)
 
 load_dotenv()
 
-# SCOPES e caminhos para credenciais
 SCOPES = ['https://www.googleapis.com/auth/drive']
-# Assume que a pasta 'credentials' está na raiz do projeto
+# Se o erro 404 persistir com Apps Script e você já verificou tudo,
+# como último recurso, adicione 'https://www.googleapis.com/auth/script.projects'
+# e delete token.json para reautorizar. Mas geralmente não é necessário para scripts.run.
+
 TOKEN_FILE = resource_path('credentials/token.json')
 CREDENTIALS_FILE = resource_path('credentials/credentials.json')
 
 def get_drive_service():
-    """Mostra o fluxo de login e cria o serviço da API do Drive."""
     creds = None
-    
-    # Criar diretório de credenciais se não existir (para token.json)
     credentials_dir = os.path.dirname(TOKEN_FILE)
     if not os.path.exists(credentials_dir):
-        try:
-            os.makedirs(credentials_dir)
-            print(f"Diretório de credenciais '{credentials_dir}' criado.")
-        except OSError as e:
-            print(f"Erro ao criar diretório de credenciais '{credentials_dir}': {e}")
-            return None # Não pode salvar o token.json
+        try: os.makedirs(credentials_dir); print(f"Diretório '{credentials_dir}' criado.")
+        except OSError as e: print(f"Erro ao criar '{credentials_dir}': {e}"); return None, None
 
     if os.path.exists(TOKEN_FILE):
-        try:
-            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-        except Exception as e:
-            print(f"Erro ao carregar token de '{TOKEN_FILE}': {e}. Tentando reautenticar.")
-            creds = None # Força reautenticação
+        try: creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+        except ValueError as e: print(f"Erro ao carregar token (malformado?): {e}"); creds = None
+        except Exception as e: print(f"Erro desconhecido ao carregar token: {e}"); creds = None
             
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            try:
-                print("Token expirado. Tentando atualizar...")
-                creds.refresh(Request())
-                print("Token atualizado com sucesso.")
-            except Exception as e:
-                print(f"Erro ao atualizar token: {e}. Requer nova autenticação.")
-                creds = None # Força reautenticação
+            try: print("Token expirado. Atualizando..."); creds.refresh(Request()); print("Token atualizado.")
+            except Exception as e: print(f"Erro ao atualizar token: {e}"); creds = None
         
-        if not creds: # Se refresh falhou ou não havia token ou token inválido
-            print("Nenhuma credencial válida encontrada ou token não pôde ser atualizado. Iniciando fluxo de autenticação...")
+        if not creds:
+            print("Iniciando novo fluxo de autenticação...")
             if not os.path.exists(CREDENTIALS_FILE):
-                print(f"ERRO CRÍTICO: Arquivo de credenciais '{CREDENTIALS_FILE}' não encontrado.")
-                print("Por favor, configure o OAuth 2.0 no Google Cloud Console,")
-                print("baixe o arquivo JSON de credenciais e coloque-o em 'credentials/credentials.json'.")
-                return None
-            
+                print(f"ERRO CRÍTICO: '{CREDENTIALS_FILE}' não encontrado."); return None, None
             try:
                 flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-                creds = flow.run_local_server(port=0)
-                print("Autenticação bem-sucedida.")
-            except FileNotFoundError:
-                 print(f"ERRO CRÍTICO: Arquivo de credenciais '{CREDENTIALS_FILE}' especificado não foi encontrado durante o InstalledAppFlow.")
-                 return None
-            except Exception as e:
-                print(f"Falha ao iniciar servidor local para autenticação ou outro erro no fluxo: {e}")
-                return None
-
-        # Salve as credenciais para a próxima execução
+                creds = flow.run_local_server(port=0); print("Autenticação bem-sucedida.")
+            except FileNotFoundError: print(f"ERRO CRÍTICO: '{CREDENTIALS_FILE}' não encontrado durante auth."); return None, None
+            except Exception as e: print(f"Falha na autenticação: {e}"); return None, None
         try:
-            with open(TOKEN_FILE, 'w') as token_file_handle:
-                token_file_handle.write(creds.to_json())
+            with open(TOKEN_FILE, 'w') as token_f: token_f.write(creds.to_json())
             print(f"Token salvo em '{TOKEN_FILE}'.")
-        except IOError as e:
-            print(f"Erro ao salvar o token em '{TOKEN_FILE}': {e}")
-            # Continuar mesmo assim, mas a próxima execução exigirá nova autenticação
+        except IOError as e: print(f"Erro ao salvar token: {e}")
+
+    if not creds or not creds.valid:
+        print("ERRO CRÍTICO: Não foi possível obter credenciais OAuth válidas."); return None, None
 
     try:
-        service = build('drive', 'v3', credentials=creds)
-        print("Serviço do Google Drive autenticado e construído com sucesso.")
-        return service
-    except HttpError as error:
-        print(f'Um erro HTTP ocorreu ao construir o serviço do Drive: {error}')
-    except Exception as e:
-        print(f'Um erro inesperado ocorreu ao construir o serviço do Drive: {e}')
-    return None
+        drive_service_obj = build('drive', 'v3', credentials=creds)
+        print("Serviço do Google Drive construído com sucesso.")
+        return drive_service_obj, creds
+    except HttpError as e: print(f'Erro HTTP ao construir serviço Drive: {e.resp.status} - {e.content.decode()}'); return None, None
+    except Exception as e: print(f'Erro inesperado ao construir serviço Drive: {e}'); return None, None
 
 def upload_file_to_folder(service, local_file_path, folder_id, drive_filename=None):
-    """Faz upload de um arquivo para uma pasta específica no Google Drive."""
-    if not service:
-        print("ERRO: Serviço do Drive não fornecido para upload_file_to_folder.")
-        return None
-    if not os.path.exists(local_file_path):
-        print(f"Arquivo local não encontrado para upload: {local_file_path}")
-        return None
-
-    if drive_filename is None:
-        drive_filename = os.path.basename(local_file_path)
-
+    if not service: print("ERRO: Serviço Drive não fornecido para upload."); return None
+    if not os.path.exists(local_file_path): print(f"Arquivo local não encontrado: {local_file_path}"); return None
+    if drive_filename is None: drive_filename = os.path.basename(local_file_path)
     mimetype, _ = mimetypes.guess_type(local_file_path)
-    if mimetype is None:
-        mimetype = 'application/octet-stream'
-
-    file_metadata = {
-        'name': drive_filename,
-        'parents': [folder_id]
-    }
+    if mimetype is None: mimetype = 'application/octet-stream'
+    file_metadata = {'name': drive_filename, 'parents': [folder_id]}
     media = MediaFileUpload(local_file_path, mimetype=mimetype, resumable=True)
     try:
-        print(f"Fazendo upload de '{local_file_path}' como '{drive_filename}' para a pasta Drive ID '{folder_id}'...")
-        file = service.files().create(body=file_metadata,
-                                      media_body=media,
-                                      fields='id, name, webViewLink').execute()
-        print(f"Arquivo '{file.get('name')}' enviado com sucesso!")
-        # print(f"  ID do Arquivo no Drive: {file.get('id')}")
-        # print(f"  Link do Arquivo no Drive: {file.get('webViewLink')}")
-        return file.get('id')
-    except HttpError as error:
-        print(f'Um erro HTTP ocorreu durante o upload de "{drive_filename}": {error}')
-    except Exception as e:
-        print(f'Um erro inesperado ocorreu durante o upload de "{drive_filename}": {e}')
+        print(f"Upload: '{local_file_path}' como '{drive_filename}' para Drive ID '{folder_id}'...")
+        file_obj = service.files().create(body=file_metadata, media_body=media, fields='id, name').execute()
+        print(f"Arquivo '{file_obj.get('name')}' enviado com sucesso para o Drive!")
+        return file_obj.get('id')
+    except HttpError as e: print(f'Erro HTTP upload "{drive_filename}": {e.resp.status} - {e.content.decode()}')
+    except Exception as e: print(f'Erro inesperado upload "{drive_filename}": {e}')
     return None
 
-# O bloco if __name__ == '__main__': abaixo é para teste direto deste arquivo.
-# Ele não será executado quando este arquivo for importado como um módulo.
+def executar_apps_script(service_credentials, script_id, function_name, parameters=None, dev_mode=False, deployment_id=None):
+    """
+    Executa uma função em um projeto Google Apps Script.
+    deployment_id aqui é apenas para log informativo se dev_mode for False.
+    """
+    if not service_credentials: print("ERRO: Credenciais não fornecidas para Apps Script."); return None
+    if not script_id: print("ERRO: ID do Apps Script não fornecido."); return None
+    if not function_name: print("ERRO: Nome da função Apps Script não fornecido."); return None
+
+    try:
+        script_service = build('script', 'v1', credentials=service_credentials)
+        request_body = {'function': function_name, 'devMode': dev_mode}
+        if parameters: request_body['parameters'] = parameters
+        
+        log_msg = f"Executando Apps Script ID: {script_id}, Função: {function_name} (devMode: {dev_mode})"
+        # O deployment_id é passado para a função, mas não é adicionado ao request_body aqui.
+        # A API scripts.run com devMode=false deve usar a implantação API Executável padrão.
+        if not dev_mode and deployment_id: 
+             log_msg += f", DeploymentID (informativo): {deployment_id}"
+        print(log_msg)
+
+        if parameters: print(f"  Com parâmetros: {parameters}")
+
+        response = script_service.scripts().run(scriptId=script_id, body=request_body).execute()
+
+        if 'error' in response:
+            error_details = response['error'].get('details', [{}])[0]
+            error_message = error_details.get('errorMessage', 'Mensagem de erro não disponível do Apps Script.')
+            print(f"ERRO retornado pelo Apps Script: {error_message}")
+            if 'scriptStackTraceElements' in error_details:
+                print("  Rastreamento de Pilha do Apps Script:")
+                for trace in error_details['scriptStackTraceElements']:
+                    print(f"    Função: {trace.get('function', 'N/A')}, Linha: {trace.get('lineNumber', 'N/A')}")
+            return None
+        else:
+            print("Apps Script executado com sucesso.")
+            result = response.get('response', {}).get('result')
+            if result is not None: print(f"  Resultado do Apps Script: {result}")
+            return response
+            
+    except HttpError as e:
+        print(f"Erro HTTP ao chamar API Apps Script: Status {e.resp.status}, Resposta: {e.content.decode()}")
+        return None
+    except Exception as e:
+        print(f"Erro inesperado ao tentar executar Apps Script: {e}")
+        traceback.print_exc()
+        return None
+
 if __name__ == '__main__':
-    print("--- Testando módulo de upload para Google Drive (upload_gdrive.py) ---")
+    print("--- Testando módulo upload_gdrive.py ---")
     
-    # Carrega o ID da pasta do .env para o teste
-    # Se não for definido no .env, tg_folder_id será None
-    tg_folder_id_teste = os.getenv('TARGET_FOLDER_ID_TESTE', os.getenv('TARGET_FOLDER_ID'))
-
-
-    if not tg_folder_id_teste:
-        print("ERRO: 'TARGET_FOLDER_ID' ou 'TARGET_FOLDER_ID_TESTE' não definido no .env para teste.")
-        print("Por favor, defina um ID de pasta para teste.")
+    tg_folder_id_test = os.getenv('TARGET_FOLDER_ID_TESTE_DRIVE', os.getenv('TARGET_FOLDER_ID'))
+    if not tg_folder_id_test: print("\nAVISO: Var TARGET_FOLDER_ID_TESTE_DRIVE não definida para teste de upload.")
     else:
-        # Crie um arquivo de exemplo para testar
-        example_file_path = resource_path('meu_arquivo_de_teste_drive.txt')
+        print("\n--- Teste de Upload Drive ---")
+        example_file = resource_path('test_drive_upload.txt')
         try:
-            with open(example_file_path, 'w') as f:
-                f.write('Este é um arquivo de teste para o Google Drive via Python!')
-            print(f"Arquivo de teste '{example_file_path}' criado.")
-
-            drive_service = get_drive_service()
-            if drive_service:
-                print(f"Tentando fazer upload do arquivo '{example_file_path}' para a pasta Drive ID '{tg_folder_id_teste}'...")
-                upload_file_to_folder(drive_service, example_file_path, tg_folder_id_teste)
-            else:
-                print("Não foi possível obter o serviço do Google Drive para o teste.")
+            with open(example_file, 'w') as f: f.write('Teste upload Drive!')
+            test_drive_svc, test_drive_creds_val = get_drive_service()
+            if test_drive_svc: upload_file_to_folder(test_drive_svc, example_file, tg_folder_id_test)
+            else: print("Falha ao obter serviço Drive para teste upload.")
         finally:
-            # Limpeza do arquivo de exemplo
-            if os.path.exists(example_file_path):
-                os.remove(example_file_path)
-                print(f"Arquivo de teste '{example_file_path}' removido.")
-    print("--- Fim do teste do módulo de upload ---")
+            if os.path.exists(example_file): os.remove(example_file)
+
+    print("\n--- Teste de Execução Apps Script ---")
+    as_id_test = os.getenv('APPS_SCRIPT_ID_TESTE', os.getenv('APPS_SCRIPT_ID'))
+    as_func_test = os.getenv('APPS_SCRIPT_FUNCTION_NAME_TESTE', os.getenv('APPS_SCRIPT_FUNCTION_NAME'))
+    as_deploy_id_test = os.getenv('APPS_SCRIPT_DEPLOYMENT_ID_TESTE', os.getenv('APPS_SCRIPT_DEPLOYMENT_ID'))
+
+    if not (as_id_test and as_func_test):
+        print("AVISO: Vars APPS_SCRIPT_ID_TESTE ou APPS_SCRIPT_FUNCTION_NAME_TESTE não definidas para teste Apps Script.")
+    else:
+        # Tenta obter credenciais novamente se não foram obtidas no teste anterior ou se falharam
+        if 'test_drive_creds_val' not in locals() or not test_drive_creds_val or not test_drive_creds_val.valid:
+            print("Obtendo credenciais para teste Apps Script...")
+            _, test_drive_creds_val = get_drive_service() # Pega só as credenciais
+        
+        if test_drive_creds_val and test_drive_creds_val.valid:
+            print(f"Testando Apps Script (devMode=False, deploymentId informativo: {as_deploy_id_test})...")
+            executar_apps_script(test_drive_creds_val, as_id_test, as_func_test, dev_mode=False, deployment_id=as_deploy_id_test)
+            
+            # print(f"\nTestando Apps Script (devMode=True)...")
+            # executar_apps_script(test_drive_creds_val, as_id_test, as_func_test, dev_mode=True)
+        else:
+            print("Não foi possível obter credenciais válidas para testar Apps Script.")
+            
+    print("\n--- Fim dos testes upload_gdrive.py ---")
