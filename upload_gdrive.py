@@ -12,9 +12,9 @@ from dotenv import load_dotenv
 import traceback # Para o traceback.print_exc()
 
 try:
-    from aux import resource_path
+    from aux_ import resource_path
 except ImportError:
-    print("AVISO: Não foi possível importar 'resource_path' de 'aux.py'. Usando fallback.")
+    print("AVISO: Não foi possível importar 'resource_path' de 'aux_.py'. Usando fallback.")
     def resource_path(relative_path):
         base_path = os.path.dirname(os.path.abspath(__file__))
         return os.path.join(base_path, relative_path)
