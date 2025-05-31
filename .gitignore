@@ -185,3 +185,15 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
