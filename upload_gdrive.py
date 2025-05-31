@@ -22,9 +22,6 @@ except ImportError:
 load_dotenv()
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
-# Se o erro 404 persistir com Apps Script e você já verificou tudo,
-# como último recurso, adicione 'https://www.googleapis.com/auth/script.projects'
-# e delete token.json para reautorizar. Mas geralmente não é necessário para scripts.run.
 
 TOKEN_FILE = resource_path('credentials/token.json')
 CREDENTIALS_FILE = resource_path('credentials/credentials.json')
@@ -87,54 +84,6 @@ def upload_file_to_folder(service, local_file_path, folder_id, drive_filename=No
     except Exception as e: print(f'Erro inesperado upload "{drive_filename}": {e}')
     return None
 
-def executar_apps_script(service_credentials, script_id, function_name, parameters=None, dev_mode=False, deployment_id=None):
-    """
-    Executa uma função em um projeto Google Apps Script.
-    deployment_id aqui é apenas para log informativo se dev_mode for False.
-    """
-    if not service_credentials: print("ERRO: Credenciais não fornecidas para Apps Script."); return None
-    if not script_id: print("ERRO: ID do Apps Script não fornecido."); return None
-    if not function_name: print("ERRO: Nome da função Apps Script não fornecido."); return None
-
-    try:
-        script_service = build('script', 'v1', credentials=service_credentials)
-        request_body = {'function': function_name, 'devMode': dev_mode}
-        if parameters: request_body['parameters'] = parameters
-        
-        log_msg = f"Executando Apps Script ID: {script_id}, Função: {function_name} (devMode: {dev_mode})"
-        # O deployment_id é passado para a função, mas não é adicionado ao request_body aqui.
-        # A API scripts.run com devMode=false deve usar a implantação API Executável padrão.
-        if not dev_mode and deployment_id: 
-             log_msg += f", DeploymentID (informativo): {deployment_id}"
-        print(log_msg)
-
-        if parameters: print(f"  Com parâmetros: {parameters}")
-
-        response = script_service.scripts().run(scriptId=script_id, body=request_body).execute()
-
-        if 'error' in response:
-            error_details = response['error'].get('details', [{}])[0]
-            error_message = error_details.get('errorMessage', 'Mensagem de erro não disponível do Apps Script.')
-            print(f"ERRO retornado pelo Apps Script: {error_message}")
-            if 'scriptStackTraceElements' in error_details:
-                print("  Rastreamento de Pilha do Apps Script:")
-                for trace in error_details['scriptStackTraceElements']:
-                    print(f"    Função: {trace.get('function', 'N/A')}, Linha: {trace.get('lineNumber', 'N/A')}")
-            return None
-        else:
-            print("Apps Script executado com sucesso.")
-            result = response.get('response', {}).get('result')
-            if result is not None: print(f"  Resultado do Apps Script: {result}")
-            return response
-            
-    except HttpError as e:
-        print(f"Erro HTTP ao chamar API Apps Script: Status {e.resp.status}, Resposta: {e.content.decode()}")
-        return None
-    except Exception as e:
-        print(f"Erro inesperado ao tentar executar Apps Script: {e}")
-        traceback.print_exc()
-        return None
-
 if __name__ == '__main__':
     print("--- Testando módulo upload_gdrive.py ---")
     
@@ -150,27 +99,5 @@ if __name__ == '__main__':
             else: print("Falha ao obter serviço Drive para teste upload.")
         finally:
             if os.path.exists(example_file): os.remove(example_file)
-
-    print("\n--- Teste de Execução Apps Script ---")
-    as_id_test = os.getenv('APPS_SCRIPT_ID_TESTE', os.getenv('APPS_SCRIPT_ID'))
-    as_func_test = os.getenv('APPS_SCRIPT_FUNCTION_NAME_TESTE', os.getenv('APPS_SCRIPT_FUNCTION_NAME'))
-    as_deploy_id_test = os.getenv('APPS_SCRIPT_DEPLOYMENT_ID_TESTE', os.getenv('APPS_SCRIPT_DEPLOYMENT_ID'))
-
-    if not (as_id_test and as_func_test):
-        print("AVISO: Vars APPS_SCRIPT_ID_TESTE ou APPS_SCRIPT_FUNCTION_NAME_TESTE não definidas para teste Apps Script.")
-    else:
-        # Tenta obter credenciais novamente se não foram obtidas no teste anterior ou se falharam
-        if 'test_drive_creds_val' not in locals() or not test_drive_creds_val or not test_drive_creds_val.valid:
-            print("Obtendo credenciais para teste Apps Script...")
-            _, test_drive_creds_val = get_drive_service() # Pega só as credenciais
-        
-        if test_drive_creds_val and test_drive_creds_val.valid:
-            print(f"Testando Apps Script (devMode=False, deploymentId informativo: {as_deploy_id_test})...")
-            executar_apps_script(test_drive_creds_val, as_id_test, as_func_test, dev_mode=False, deployment_id=as_deploy_id_test)
-            
-            # print(f"\nTestando Apps Script (devMode=True)...")
-            # executar_apps_script(test_drive_creds_val, as_id_test, as_func_test, dev_mode=True)
-        else:
-            print("Não foi possível obter credenciais válidas para testar Apps Script.")
             
     print("\n--- Fim dos testes upload_gdrive.py ---")

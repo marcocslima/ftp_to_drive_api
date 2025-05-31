@@ -1,5 +1,5 @@
 # ecarta_processor.py
-# (Imports e Configurações Iniciais permanecem os mesmos)
+
 from ftplib import FTP
 import zipfile
 import os

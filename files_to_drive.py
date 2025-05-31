@@ -21,12 +21,6 @@ USUARIO_FTP = os.getenv('USER_ECARTA')
 SENHA_FTP = os.getenv('PASSWORD')
 DIRETORIO_FTP = os.getenv('DIRECTORY')
 
-# --- CONFIGURAÇÕES DO APPS SCRIPT ---
-APPS_SCRIPT_ID = os.getenv('APPS_SCRIPT_ID')
-APPS_SCRIPT_FUNCTION_NAME = os.getenv('APPS_SCRIPT_FUNCTION_NAME')
-APPS_SCRIPT_DEPLOYMENT_ID = os.getenv('APPS_SCRIPT_DEPLOYMENT_ID') # Pode ser None
-
-
 if __name__ == "__main__":
     # Validação inicial das configurações essenciais
     if not TARGET_DRIVE_FOLDER_ID_PRINCIPAL:
@@ -123,28 +117,8 @@ if __name__ == "__main__":
         else:
             print("\nExclusão de arquivos do FTP pulada devido a falhas no processamento local ou nos uploads para o Drive.")
 
-        # 5. Disparar o Apps Script se todas as etapas anteriores (incluindo uploads) foram bem-sucedidas
-        if processamento_local_ok and upload_pdfs_finais_ok and upload_arquivos_devolucaoAR_ok:
-            if APPS_SCRIPT_ID and APPS_SCRIPT_FUNCTION_NAME:
-                time.sleep(20)  # Pequena pausa para garantir que o Drive esteja pronto
-                print(f"\n--- Fase 4: Disparando Google Apps Script ---")
-                apps_script_response = gdrive_uploader.executar_apps_script(
-                    drive_credentials,
-                    APPS_SCRIPT_ID, # <<< ID DO SCRIPT
-                    APPS_SCRIPT_FUNCTION_NAME,
-                    dev_mode=True # Para executar a API Executável implantada
-                    #deployment_id=APPS_SCRIPT_DEPLOYMENT_ID # Não passamos aqui para este teste
-                )
-                if apps_script_response:
-                    print("Solicitação para Apps Script enviada e processada (verifique o resultado acima).")
-                else:
-                    print("Falha ao executar o Apps Script ou a solicitação não foi bem-sucedida.")
-            else:
-                print("\nAPPS_SCRIPT_ID ou APPS_SCRIPT_FUNCTION_NAME não definidos no .env. Apps Script não será disparado.")
-        else:
-            print("\nApps Script não será disparado devido a falhas em etapas anteriores (processamento local ou uploads).")
     else: # drive_service_ok é False
-        print("Etapas dependentes do Google Drive (uploads, Apps Script, exclusão FTP condicionada) foram puladas.")
+        print("Etapas dependentes do Google Drive (uploads, exclusão FTP condicionada) foram puladas.")
 
 
     end_time_total = time.perf_counter()
