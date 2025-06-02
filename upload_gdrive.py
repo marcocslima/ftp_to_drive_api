@@ -22,6 +22,13 @@ logger = logging.getLogger(__name__)
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
+# LEIA A VARIÁVEL DE AMBIENTE AQUI E ATRIBUA A UMA CONSTANTE/VARIÁVEL PYTHON
+NEW_OWNER_EMAIL = os.getenv('NEW_OWNER_EMAIL_ENV_VAR_NAME') # Use o nome exato da sua variável de ambiente
+
+# Verifique se foi lida corretamente
+if not NEW_OWNER_EMAIL:
+    logger.warning("Variável de ambiente para NEW_OWNER_EMAIL não está definida! A transferência de propriedade será pulada.")
+
 # ✅ CORREÇÃO: Usar diretórios temporários para Vercel
 def get_temp_credentials_dir():
     """Retorna diretório temporário para credenciais"""
