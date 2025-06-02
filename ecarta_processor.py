@@ -4,6 +4,8 @@ from ftplib import FTP
 import zipfile
 import os
 import shutil
+import tempfile
+from pathlib import Path
 from dotenv import load_dotenv
 import logging
 
@@ -12,40 +14,71 @@ load_dotenv()
 # Configurar logging
 logger = logging.getLogger(__name__)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-def resource_path(relative_to_base_dir):
-    return os.path.join(BASE_DIR, relative_to_base_dir)
+# ✅ CORREÇÃO: Usar diretório temporário compatível com Vercel
+def get_temp_base_dir():
+    """Retorna diretório base temporário compatível com Vercel"""
+    temp_dir = tempfile.gettempdir()  # /tmp no Vercel
+    base_dir = os.path.join(temp_dir, "ecarta_processing")
+    return base_dir
 
+# ✅ Configurações de FTP
 HOST_FTP = os.getenv('HOST')
 PORT_FTP = int(os.getenv('PORT', 21))
 USUARIO_FTP = os.getenv('USER_ECARTA')
 SENHA_FTP = os.getenv('PASSWORD')
 DIRETORIO_FTP = os.getenv('DIRECTORY')
 
-DOWNLOADS_FOLDER = resource_path('arquivos/downloads')
-UNZIP_FILES_FOLDER = resource_path('arquivos/unzip_files')
-TMP_FOLDER = resource_path('arquivos/tmp')
+# ✅ CORREÇÃO: Usar caminhos temporários
+BASE_TEMP_DIR = get_temp_base_dir()
+DOWNLOADS_FOLDER = os.path.join(BASE_TEMP_DIR, 'downloads')
+UNZIP_FILES_FOLDER = os.path.join(BASE_TEMP_DIR, 'unzip_files')
+TMP_FOLDER = os.path.join(BASE_TEMP_DIR, 'tmp')
 
 def limpar_e_recriar_pasta(folder_path):
-    """Limpa e recria uma pasta"""
-    if os.path.exists(folder_path):
-        try:
-            shutil.rmtree(folder_path)
-            logger.info(f"Pasta '{folder_path}' removida")
-        except OSError as e:
-            logger.error(f"Erro ao remover pasta '{folder_path}': {e}")
-            raise
+    """Limpa e recria uma pasta usando Path para melhor compatibilidade"""
     try:
-        os.makedirs(folder_path, exist_ok=True)
-        logger.info(f"Pasta '{folder_path}' criada")
-    except OSError as e:
+        folder_path = Path(folder_path)
+
+        if folder_path.exists():
+            try:
+                shutil.rmtree(folder_path)
+                logger.info(f"Pasta '{folder_path}' removida")
+            except OSError as e:
+                logger.error(f"Erro ao remover pasta '{folder_path}': {e}")
+                raise
+
+        # Criar pasta com parents=True para criar toda a estrutura
+        folder_path.mkdir(parents=True, exist_ok=True)
+        logger.info(f"✓ Pasta '{folder_path}' criada com sucesso")
+
+    except Exception as e:
         logger.error(f"Erro crítico ao criar pasta '{folder_path}': {e}")
+        raise
+
+def setup_working_directories():
+    """Configura todos os diretórios de trabalho"""
+    try:
+        logger.info(f"Configurando diretórios de trabalho em: {BASE_TEMP_DIR}")
+
+        # Criar diretório base
+        Path(BASE_TEMP_DIR).mkdir(parents=True, exist_ok=True)
+
+        # Criar subdiretórios
+        limpar_e_recriar_pasta(DOWNLOADS_FOLDER)
+        limpar_e_recriar_pasta(UNZIP_FILES_FOLDER)
+        limpar_e_recriar_pasta(TMP_FOLDER)
+
+        logger.info("✓ Todos os diretórios de trabalho configurados")
+        return True
+
+    except Exception as e:
+        logger.error(f"Erro ao configurar diretórios: {e}")
         raise
 
 def download_files_from_ftp(host, port, usuario, senha, remote_directory, local_downloads_folder):
     """Baixa arquivos do FTP"""
-    if not os.path.isdir(local_downloads_folder):
-        os.makedirs(local_downloads_folder, exist_ok=True)
+    # Garantir que o diretório existe
+    Path(local_downloads_folder).mkdir(parents=True, exist_ok=True)
 
     arquivos_baixados_info = []
     try:
@@ -81,7 +114,9 @@ def descompactar_zip(caminho_arquivo_zip, pasta_destino):
         logger.error(f"Arquivo ZIP inválido ou não encontrado: {caminho_arquivo_zip}")
         return False
 
-    os.makedirs(pasta_destino, exist_ok=True)
+    # Garantir que pasta destino existe
+    Path(pasta_destino).mkdir(parents=True, exist_ok=True)
+
     try:
         with zipfile.ZipFile(caminho_arquivo_zip, 'r') as zip_ref:
             zip_ref.extractall(pasta_destino)
@@ -131,14 +166,13 @@ def processar_arquivos_ecarta_ftp():
     nomes_todos_arquivos_baixados_ftp = []
 
     try:
-        # Limpeza inicial das pastas
-        logger.info("Limpando e recriando pastas de trabalho")
-        limpar_e_recriar_pasta(DOWNLOADS_FOLDER)
-        limpar_e_recriar_pasta(UNZIP_FILES_FOLDER)
-        limpar_e_recriar_pasta(TMP_FOLDER)
+        # ✅ CORREÇÃO: Configurar diretórios de trabalho
+        logger.info("Configurando diretórios de trabalho temporários")
+        setup_working_directories()
+
     except Exception as e_limpeza:
-        logger.error(f"Erro crítico durante limpeza inicial: {e_limpeza}")
-        raise Exception(f"Falha na limpeza inicial: {e_limpeza}")
+        logger.error(f"Erro crítico durante configuração inicial: {e_limpeza}")
+        raise Exception(f"Falha na configuração inicial: {e_limpeza}")
 
     # Etapa 1: Download de arquivos do FTP
     logger.info("--- Etapa 1: Download de arquivos do FTP ---")
@@ -216,6 +250,9 @@ def processar_arquivos_ecarta_ftp():
                         continue
 
                 pdfs_processados = 0
+                # Garantir que pasta unzip existe
+                Path(UNZIP_FILES_FOLDER).mkdir(parents=True, exist_ok=True)
+
                 for idx, linha_dados in enumerate(linhas_do_arquivo_devolucao):
                     try:
                         campos = linha_dados.split('|')
@@ -225,7 +262,7 @@ def processar_arquivos_ecarta_ftp():
                         novo_nome_pdf = f"{novo_nome_pdf_base}.pdf" if not novo_nome_pdf_base.lower().endswith('.pdf') else novo_nome_pdf_base
                         pdf_orig_tmp = os.path.join(TMP_FOLDER, nome_pdf_original)
                         pdf_dest_unzip = os.path.join(UNZIP_FILES_FOLDER, novo_nome_pdf)
-                        os.makedirs(UNZIP_FILES_FOLDER, exist_ok=True)
+
                         if os.path.exists(pdf_orig_tmp):
                             shutil.move(pdf_orig_tmp, pdf_dest_unzip)
                             pdfs_processados += 1
@@ -238,7 +275,7 @@ def processar_arquivos_ecarta_ftp():
                 os.remove(arquivo_devolucao_ar_txt_path)
             else:
                 logger.info(f"Nenhum 'DevolucaoAR.txt' encontrado. Movendo conteúdo para UNZIP")
-                os.makedirs(UNZIP_FILES_FOLDER, exist_ok=True)
+                Path(UNZIP_FILES_FOLDER).mkdir(parents=True, exist_ok=True)
                 arquivos_movidos = 0
                 for item_descompactado in os.listdir(TMP_FOLDER):
                     orig_item_tmp = os.path.join(TMP_FOLDER, item_descompactado)
@@ -272,19 +309,21 @@ def processar_arquivos_ecarta_ftp():
         finally:
             # Limpar resíduos da pasta TMP
             logger.info(f"Limpando resíduos de '{nome_arquivo_zip}' da pasta TMP")
-            for item_tmp in os.listdir(TMP_FOLDER):
-                eh_outro_zip_aguardando = item_tmp.lower().endswith('.zip') and \
-                                          any(info_zip_pendente["nome_ftp"] == item_tmp for info_zip_pendente in arquivos_zip_para_processar_info if info_zip_pendente["nome_ftp"] != nome_arquivo_zip)
-                if not eh_outro_zip_aguardando:
-                    caminho_item_tmp_del = os.path.join(TMP_FOLDER, item_tmp)
-                    try:
-                        if os.path.isfile(caminho_item_tmp_del) or os.path.islink(caminho_item_tmp_del):
-                            os.unlink(caminho_item_tmp_del)
-                        elif os.path.isdir(caminho_item_tmp_del):
-                            shutil.rmtree(caminho_item_tmp_del)
-                    except Exception as e_clean:
-                        logger.error(f"Erro ao limpar '{item_tmp}' de tmp: {e_clean}")
-            os.makedirs(TMP_FOLDER, exist_ok=True)
+            if os.path.exists(TMP_FOLDER):
+                for item_tmp in os.listdir(TMP_FOLDER):
+                    eh_outro_zip_aguardando = item_tmp.lower().endswith('.zip') and \
+                                              any(info_zip_pendente["nome_ftp"] == item_tmp for info_zip_pendente in arquivos_zip_para_processar_info if info_zip_pendente["nome_ftp"] != nome_arquivo_zip)
+                    if not eh_outro_zip_aguardando:
+                        caminho_item_tmp_del = os.path.join(TMP_FOLDER, item_tmp)
+                        try:
+                            if os.path.isfile(caminho_item_tmp_del) or os.path.islink(caminho_item_tmp_del):
+                                os.unlink(caminho_item_tmp_del)
+                            elif os.path.isdir(caminho_item_tmp_del):
+                                shutil.rmtree(caminho_item_tmp_del)
+                        except Exception as e_clean:
+                            logger.error(f"Erro ao limpar '{item_tmp}' de tmp: {e_clean}")
+                # Recriar pasta TMP vazia
+                Path(TMP_FOLDER).mkdir(parents=True, exist_ok=True)
 
     logger.info("✓ Processamento de todos os arquivos eCarta concluído")
     return UNZIP_FILES_FOLDER, nomes_todos_arquivos_baixados_ftp, caminhos_locais_arquivos_devolucaoAR_originais_para_arquivar
@@ -292,6 +331,15 @@ def processar_arquivos_ecarta_ftp():
 def main():
     """Função main para compatibilidade com a API"""
     return processar_arquivos_ecarta_ftp()
+
+def cleanup_temp_directories():
+    """Limpa diretórios temporários após processamento"""
+    try:
+        if os.path.exists(BASE_TEMP_DIR):
+            shutil.rmtree(BASE_TEMP_DIR)
+            logger.info(f"✓ Diretórios temporários limpos: {BASE_TEMP_DIR}")
+    except Exception as e:
+        logger.warning(f"Erro ao limpar diretórios temporários: {e}")
 
 if __name__ == "__main__":
     print("--- Executando ecarta_processor.py diretamente para TESTE ---")
@@ -305,3 +353,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"ERRO no teste: {e}")
         exit(1)
+    finally:
+        cleanup_temp_directories()
