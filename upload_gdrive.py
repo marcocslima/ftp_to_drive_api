@@ -155,6 +155,7 @@ def get_drive_service_oauth():
 def upload_file_to_folder(service, local_file_path, folder_id, drive_filename=None):
     """
     Faz upload de um arquivo para uma pasta específica no Google Drive
+    e tenta transferir a propriedade ou compartilhar como editor.
 
     Args:
         service: Serviço do Google Drive
@@ -176,38 +177,81 @@ def upload_file_to_folder(service, local_file_path, folder_id, drive_filename=No
     if drive_filename is None:
         drive_filename = os.path.basename(local_file_path)
 
-    # ✅ Determinar tipo MIME
     mimetype, _ = mimetypes.guess_type(local_file_path)
     if mimetype is None:
         mimetype = 'application/octet-stream'
 
-    # ✅ Metadados do arquivo
     file_metadata = {
         'name': drive_filename,
         'parents': [folder_id]
     }
 
-    # ✅ Preparar upload
-    try:
-        media = MediaFileUpload(local_file_path, mimetype=mimetype, resumable=True)
-    except Exception as e:
-        logger.error(f"Erro ao preparar upload de '{local_file_path}': {e}")
-        return None
+    file_id = None # Inicializa file_id aqui para o bloco finally
 
     try:
         logger.info(f"Iniciando upload: '{os.path.basename(local_file_path)}' -> '{drive_filename}'")
-
-        # ✅ Fazer upload
+        media = MediaFileUpload(local_file_path, mimetype=mimetype, resumable=True)
+        
         file_obj = service.files().create(
             body=file_metadata,
             media_body=media,
-            fields='id, name'
+            fields='id, name' # Pedir id e name de volta
         ).execute()
 
         file_id = file_obj.get('id')
-        file_name = file_obj.get('name')
+        file_name_uploaded = file_obj.get('name') # Nome como foi salvo no Drive
 
-        logger.info(f"✓ Upload concluído: '{file_name}' (ID: {file_id})")
+        if not file_id:
+            logger.error(f"Falha ao obter ID do arquivo '{file_name_uploaded}' após upload.")
+            return None
+            
+        logger.info(f"✓ Upload concluído: '{file_name_uploaded}' (ID: {file_id})")
+
+        # --- INÍCIO DA LÓGICA DE TRANSFERÊNCIA/COMPARTILHAMENTO ---
+        if NEW_OWNER_EMAIL:
+            logger.info(f"Tentando transferir propriedade do arquivo '{file_name_uploaded}' (ID: {file_id}) para {NEW_OWNER_EMAIL}")
+            try:
+                permission_body = {
+                    'role': 'owner',
+                    'type': 'user',
+                    'emailAddress': NEW_OWNER_EMAIL
+                }
+                service.permissions().create(
+                    fileId=file_id,
+                    body=permission_body,
+                    transferOwnership=True,
+                    # sendNotificationEmail=False, # Opcional
+                    supportsAllDrives=True # Boa prática
+                ).execute()
+                logger.info(f"✓ Propriedade do arquivo '{file_name_uploaded}' transferida para {NEW_OWNER_EMAIL}")
+            
+            except HttpError as e_owner:
+                logger.warning(f"Falha ao transferir propriedade para {NEW_OWNER_EMAIL}. Erro: {e_owner.resp.status} - {e_owner.content.decode()}")
+                logger.info(f"Tentando compartilhar '{file_name_uploaded}' (ID: {file_id}) com {NEW_OWNER_EMAIL} como editor (writer)...")
+                try:
+                    editor_permission_body = {
+                        'role': 'writer', # Papel de editor
+                        'type': 'user',
+                        'emailAddress': NEW_OWNER_EMAIL
+                    }
+                    service.permissions().create(
+                        fileId=file_id,
+                        body=editor_permission_body,
+                        # sendNotificationEmail=False, # Opcional
+                        supportsAllDrives=True
+                    ).execute()
+                    logger.info(f"✓ Arquivo '{file_name_uploaded}' compartilhado com {NEW_OWNER_EMAIL} como editor.")
+                except HttpError as e_writer:
+                    logger.error(f"Falha ao compartilhar como editor com {NEW_OWNER_EMAIL}. Erro: {e_writer.resp.status} - {e_writer.content.decode()}")
+                    # Mesmo se o compartilhamento falhar, o upload foi um sucesso, então retorne o file_id
+                except Exception as e_writer_generic:
+                    logger.error(f"Erro inesperado ao compartilhar como editor com {NEW_OWNER_EMAIL}: {e_writer_generic}")
+            except Exception as e_owner_generic:
+                logger.error(f"Erro inesperado ao tentar transferir propriedade para {NEW_OWNER_EMAIL}: {e_owner_generic}")
+        else:
+            logger.warning("NEW_OWNER_EMAIL não definido. Propriedade não será transferida.")
+        # --- FIM DA LÓGICA DE TRANSFERÊNCIA/COMPARTILHAMENTO ---
+
         return file_id
 
     except HttpError as e:
