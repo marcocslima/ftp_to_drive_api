@@ -160,6 +160,7 @@ def get_drive_service_oauth():
         return None, None
 
 def upload_file_to_folder(service, local_file_path, folder_id, drive_filename=None):
+    logger.info(f"NEW_OWNER_EMAIL: {NEW_OWNER_EMAIL}")
     """
     Faz upload de um arquivo para uma pasta específica no Google Drive
     e tenta transferir a propriedade ou compartilhar como editor.
