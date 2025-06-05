@@ -286,170 +286,50 @@ def test_drive_connection():
         logger.error(f"Erro no teste de conexão: {e}")
         return False, str(e)
 
-
-# NOVA função (da resposta anterior, certifique-se que ela está no seu código)
-def limpar_pasta_drive(service, folder_id):
-    """
-    Move todos os arquivos e subpastas de uma pasta específica no Google Drive para a lixeira.
-
-    Args:
-        service: Objeto de serviço do Google Drive autenticado.
-        folder_id: ID da pasta do Google Drive a ser limpa.
-
-    Returns:
-        tuple: (int total_itens_processados, int itens_excluidos_sucesso, int itens_falha_excluir)
-    """
-    if not service:
-        logger.error("Serviço Drive não fornecido para limpar_pasta_drive.")
-        return 0, 0, 0
-    if not folder_id:
-        logger.error("Folder ID não fornecido para limpar_pasta_drive.")
-        return 0, 0, 0
-
-    logger.info(f"--- Iniciando limpeza da pasta do Drive ID: {folder_id} ---")
-    page_token = None
-    itens_processados = 0
-    sucesso_excluir = 0
-    falha_excluir = 0
-
-    try:
-        while True:
-            response = service.files().list(
-                q=f"'{folder_id}' in parents and trashed=false",
-                spaces='drive',
-                fields='nextPageToken, files(id, name, mimeType)',
-                pageToken=page_token
-            ).execute()
-
-            items = response.get('files', [])
-            if not items and page_token is None: # Adicionado 'and page_token is None' para primeira chamada
-                logger.info(f"Nenhum item encontrado na pasta {folder_id} para limpar (ou pasta já vazia).")
-                break
-            if not items and page_token is not None: # Se não há mais itens na paginação
-                 break
-
-
-            for item in items:
-                itens_processados += 1
-                item_id = item.get('id')
-                item_name = item.get('name')
-                item_type = "Pasta" if item.get('mimeType') == 'application/vnd.google-apps.folder' else "Arquivo"
-                logger.info(f"  Tentando mover para a lixeira: {item_type} '{item_name}' (ID: {item_id})")
-                try:
-                    service.files().update(fileId=item_id, body={'trashed': True}).execute()
-                    logger.info(f"    ✓ SUCESSO: {item_type} '{item_name}' movido para a lixeira.")
-                    sucesso_excluir += 1
-                except HttpError as e_trash:
-                    logger.error(f"    ✗ FALHA ao mover {item_type} '{item_name}' para a lixeira. Erro: {e_trash.resp.status} - {e_trash.content.decode()}")
-                    falha_excluir += 1
-                except Exception as e_generic:
-                    logger.error(f"    ✗ FALHA INESPERADA ao mover {item_type} '{item_name}' para a lixeira: {e_generic}")
-                    falha_excluir += 1
-
-            page_token = response.get('nextPageToken', None)
-            if page_token is None:
-                break
-        
-        logger.info(f"--- Limpeza da pasta {folder_id} concluída ---")
-        logger.info(f"Total de itens processados: {itens_processados}")
-        logger.info(f"Itens movidos para a lixeira com sucesso: {sucesso_excluir}")
-        logger.info(f"Falhas ao mover para a lixeira: {falha_excluir}")
-
-    except HttpError as e_list:
-        logger.error(f"Erro HTTP ao listar itens da pasta {folder_id} para limpeza: {e_list.resp.status} - {e_list.content.decode()}")
-    except Exception as e_main:
-        logger.error(f"Erro inesperado durante a limpeza da pasta {folder_id}: {e_main}")
-
-    return itens_processados, sucesso_excluir, falha_excluir
-
-
-# Sua função upload_files_to_drive MODIFICADA
+# ✅ CORREÇÃO: Funções auxiliares para uploads em lote
 def upload_files_to_drive(pasta_arquivos, drive_service):
     """
-    Limpa a pasta de destino no Google Drive e depois faz upload de todos os
-    arquivos de uma pasta local para essa pasta no Google Drive.
+    Faz upload de todos os arquivos de uma pasta para o Google Drive
     
     Args:
-        pasta_arquivos: Caminho da pasta local com arquivos para upload.
-        drive_service: Serviço do Google Drive autenticado.
+        pasta_arquivos: Caminho da pasta com arquivos
+        drive_service: Serviço do Google Drive
         
     Returns:
-        dict: Resultado do upload e informações sobre a limpeza.
+        dict: Resultado do upload
     """
     target_folder_id = os.getenv('TARGET_FOLDER_ID')
     if not target_folder_id:
-        logger.error("TARGET_FOLDER_ID não definido para upload_files_to_drive.")
-        return {
-            "arquivos_enviados": 0,
-            "arquivos_com_erro_upload": 0,
-            "erro_upload": "TARGET_FOLDER_ID não definido"
-        }
-
-    if not drive_service: # Adicionado verificação do drive_service
-        logger.error("Serviço Drive não fornecido para upload_files_to_drive.")
-        return {
-            "arquivos_enviados": 0,
-            "arquivos_com_erro_upload": 0,
-            "erro_upload": "Serviço Drive não fornecido"
-        }
+        logger.error("TARGET_FOLDER_ID não definido")
+        return {"arquivos_enviados": 0, "erro": "TARGET_FOLDER_ID não definido"}
 
     if not os.path.exists(pasta_arquivos):
-        logger.error(f"Pasta local de origem não encontrada: {pasta_arquivos}")
-        return {
-            "arquivos_enviados": 0,
-            "arquivos_com_erro_upload": 0,
-            "erro_upload": f"Pasta local de origem não encontrada: {pasta_arquivos}"
-        }
-
-    # --- ETAPA DE LIMPEZA DA PASTA DE DESTINO ---
-    logger.info(f"Iniciando limpeza prévia da pasta de destino do Drive ID: {target_folder_id}")
-    # A função limpar_pasta_drive retorna (itens_processados, sucesso_excluir, falha_excluir)
-    _, sucesso_limpeza, falhas_limpeza = limpar_pasta_drive(drive_service, target_folder_id)
-    
-    if falhas_limpeza > 0:
-        logger.warning(f"Houveram {falhas_limpeza} falhas ao tentar limpar a pasta de destino. O upload prosseguirá, mas a pasta pode não estar completamente vazia.")
-    elif sucesso_limpeza > 0:
-        logger.info(f"Limpeza prévia da pasta de destino concluída com sucesso. {sucesso_limpeza} item(ns) movido(s) para a lixeira.")
-    else: # sucesso_limpeza == 0 e falhas_limpeza == 0
-        logger.info("Pasta de destino já estava vazia ou nenhum item foi encontrado para limpar.")
-    # --- FIM DA ETAPA DE LIMPEZA ---
+        logger.error(f"Pasta não encontrada: {pasta_arquivos}")
+        return {"arquivos_enviados": 0, "erro": "Pasta não encontrada"}
 
     arquivos_enviados = 0
-    arquivos_com_erro_upload = 0 # Renomeado para clareza
+    arquivos_com_erro = 0
 
-    logger.info(f"Iniciando upload dos arquivos de '{pasta_arquivos}' para a pasta Drive ID: {target_folder_id}")
     try:
-        for arquivo_nome_local in os.listdir(pasta_arquivos):
-            arquivo_path_local = os.path.join(pasta_arquivos, arquivo_nome_local)
+        for arquivo in os.listdir(pasta_arquivos):
+            arquivo_path = os.path.join(pasta_arquivos, arquivo)
             
-            if os.path.isfile(arquivo_path_local):
-                # upload_file_to_folder é sua função que faz o upload de um único arquivo
-                # e lida com a tentativa de mudança de proprietário/permissão.
-                if upload_file_to_folder(drive_service, arquivo_path_local, target_folder_id):
+            if os.path.isfile(arquivo_path):
+                if upload_file_to_folder(drive_service, arquivo_path, target_folder_id):
                     arquivos_enviados += 1
                 else:
-                    arquivos_com_erro_upload += 1
-            else:
-                logger.info(f"Item '{arquivo_nome_local}' em '{pasta_arquivos}' não é um arquivo, pulando upload.")
+                    arquivos_com_erro += 1
 
-
-        logger.info(f"Upload em lote concluído: {arquivos_enviados} arquivo(s) enviado(s) com sucesso, {arquivos_com_erro_upload} falha(s) no upload.")
+        logger.info(f"Upload concluído: {arquivos_enviados} sucesso(s), {arquivos_com_erro} erro(s)")
         return {
             "arquivos_enviados": arquivos_enviados,
-            "arquivos_com_erro_upload": arquivos_com_erro_upload,
-            "falhas_limpeza_pasta_destino": falhas_limpeza # Adicionando informação da limpeza
+            "arquivos_com_erro": arquivos_com_erro
         }
 
     except Exception as e:
-        logger.error(f"Erro crítico durante o processo de upload em lote: {e}")
-        return {
-            "arquivos_enviados": arquivos_enviados,
-            "arquivos_com_erro_upload": arquivos_com_erro_upload,
-            "falhas_limpeza_pasta_destino": falhas_limpeza,
-            "erro_upload": str(e)
-        }
-    
-    
+        logger.error(f"Erro durante upload em lote: {e}")
+        return {"arquivos_enviados": arquivos_enviados, "erro": str(e)}
+
 def upload_devolucaoar_files_to_drive(lista_arquivos, drive_service):
     """
     Faz upload de arquivos DevolucaoAR para pasta específica
