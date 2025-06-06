@@ -6,6 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 import time
 import logging
+from upload_gdrive import clear_main_drive_folder, clear_devolucaoar_drive_folder
 
 try:
     import ecarta_processor
@@ -103,6 +104,7 @@ def processar_files_to_drive():
             "validacao": False,
             "ambiente_trabalho": False,
             "drive_service": False,
+            "limpeza_drive": False,  # ✅ NOVA ETAPA
             "processamento_local": False,
             "upload_pdfs_finais": False,
             "upload_arquivos_devolucaoAR": False,
@@ -134,7 +136,49 @@ def processar_files_to_drive():
         resultado["etapas"]["drive_service"] = True
         logger.info("✓ Serviço do Google Drive obtido com sucesso")
 
-        # ✅ 1. Processar arquivos eCarta
+        # ✅ NOVA FASE 0: Limpeza das pastas do Google Drive
+        logger.info("\n--- Fase 0: Limpeza das pastas do Google Drive ---")
+        
+        try:
+            # Limpar pasta principal
+            logger.info("🧹 Limpando pasta principal do Drive...")
+            resultado_limpeza_principal = gdrive_uploader.clear_main_drive_folder(drive_service)
+            
+            if resultado_limpeza_principal.get("erro"):
+                logger.warning(f"Aviso na limpeza da pasta principal: {resultado_limpeza_principal['erro']}")
+            else:
+                logger.info(f"✓ Pasta principal: {resultado_limpeza_principal.get('arquivos_removidos', 0)} arquivo(s) removido(s)")
+            
+            # Limpar pasta DevolucaoAR
+            logger.info("🧹 Limpando pasta DevolucaoAR do Drive...")
+            resultado_limpeza_devolucao = gdrive_uploader.clear_devolucaoar_drive_folder(drive_service)
+            
+            if resultado_limpeza_devolucao.get("erro"):
+                logger.warning(f"Aviso na limpeza da pasta DevolucaoAR: {resultado_limpeza_devolucao['erro']}")
+            else:
+                logger.info(f"✓ Pasta DevolucaoAR: {resultado_limpeza_devolucao.get('arquivos_removidos', 0)} arquivo(s) removido(s)")
+
+            # Adicionar resultados da limpeza ao resultado final
+            resultado["detalhes"]["limpeza_drive"] = {
+                "pasta_principal": resultado_limpeza_principal,
+                "pasta_devolucaoar": resultado_limpeza_devolucao,
+                "total_removidos": (
+                    resultado_limpeza_principal.get('arquivos_removidos', 0) + 
+                    resultado_limpeza_devolucao.get('arquivos_removidos', 0)
+                )
+            }
+
+            resultado["etapas"]["limpeza_drive"] = True
+            logger.info("✓ Limpeza das pastas do Drive concluída")
+
+        except Exception as e:
+            logger.error(f"Erro durante limpeza do Drive: {e}")
+            resultado["detalhes"]["erro_limpeza_drive"] = str(e)
+            # Não falhar completamente por causa da limpeza
+            resultado["etapas"]["limpeza_drive"] = False
+            logger.warning("⚠️  Continuando processamento mesmo com erro na limpeza")
+
+        # ✅ FASE 1: Processar arquivos eCarta
         logger.info("\n--- Fase 1: Processamento de arquivos eCarta ---")
         resultado_proc = ecarta_processor.processar_arquivos_ecarta_ftp()
 
@@ -154,7 +198,7 @@ def processar_files_to_drive():
         resultado["detalhes"]["arquivos_baixados_ftp"] = len(nomes_todos_arquivos_baixados_ftp) if nomes_todos_arquivos_baixados_ftp else 0
         logger.info("✓ Processamento local dos arquivos concluído")
 
-        # ✅ 2. Upload dos PDFs FINAIS para a pasta principal do Drive
+        # ✅ FASE 2.1: Upload dos PDFs FINAIS para a pasta principal do Drive
         arquivos_para_upload_principal = []
         
         if pasta_pdfs_finais and os.path.isdir(pasta_pdfs_finais):
@@ -202,7 +246,7 @@ def processar_files_to_drive():
             resultado["etapas"]["upload_pdfs_finais"] = True
             resultado["detalhes"]["upload_pdfs"] = {"sucesso": 0, "falha": 0}
 
-        # ✅ 3. Upload dos ARQUIVOS DEVOLUCAOAR ORIGINAIS
+        # ✅ FASE 2.2: Upload dos ARQUIVOS DEVOLUCAOAR ORIGINAIS
         if caminhos_locais_devolucaoAR_originais:
             logger.info(f"\n--- Fase 2.2: Upload de {len(caminhos_locais_devolucaoAR_originais)} ARQUIVOS DEVOLUCAOAR ORIGINAIS ---")
             sucesso_dev = 0
@@ -238,7 +282,7 @@ def processar_files_to_drive():
             resultado["etapas"]["upload_arquivos_devolucaoAR"] = True
             resultado["detalhes"]["upload_devolucaoAR"] = {"sucesso": 0, "falha": 0}
 
-        # ✅ 4. Excluir arquivos do FTP se tudo deu certo
+        # ✅ FASE 3: Excluir arquivos do FTP se tudo deu certo
         if nomes_todos_arquivos_baixados_ftp:
             logger.info(f"\n--- Fase 3: Exclusão de {len(nomes_todos_arquivos_baixados_ftp)} arquivos do servidor FTP ---")
             try:
@@ -261,6 +305,12 @@ def processar_files_to_drive():
         # ✅ Sucesso geral
         resultado["sucesso"] = True
         resultado["mensagem"] = "Processamento concluído com sucesso"
+
+        # ✅ Resumo final da limpeza
+        if resultado["detalhes"].get("limpeza_drive"):
+            total_removidos = resultado["detalhes"]["limpeza_drive"]["total_removidos"]
+            if total_removidos > 0:
+                logger.info(f"🧹 Resumo da limpeza: {total_removidos} arquivo(s) removido(s) do Drive")
 
     except Exception as e:
         logger.error(f"Erro durante o processamento: {str(e)}")

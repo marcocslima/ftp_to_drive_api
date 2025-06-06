@@ -159,6 +159,146 @@ def get_drive_service_oauth():
         logger.error(f'Erro inesperado ao construir serviço Drive: {e}')
         return None, None
 
+def clear_drive_folder(service, folder_id, folder_name="pasta"):
+    """
+    Remove todos os arquivos de uma pasta específica no Google Drive
+    
+    Args:
+        service: Serviço do Google Drive
+        folder_id: ID da pasta no Drive para limpar
+        folder_name: Nome da pasta (para logs)
+        
+    Returns:
+        dict: Resultado da limpeza
+    """
+    if not service:
+        logger.error("Serviço Drive não fornecido para limpeza")
+        return {"arquivos_removidos": 0, "erro": "Serviço não fornecido"}
+
+    if not folder_id:
+        logger.error(f"ID da {folder_name} não fornecido")
+        return {"arquivos_removidos": 0, "erro": "ID da pasta não fornecido"}
+
+    arquivos_removidos = 0
+    arquivos_com_erro = 0
+    total_arquivos = 0
+
+    try:
+        logger.info(f"🧹 Iniciando limpeza da {folder_name} (ID: {folder_id})")
+
+        # ✅ Listar todos os arquivos na pasta
+        page_token = None
+        while True:
+            try:
+                # Buscar arquivos na pasta específica
+                query = f"'{folder_id}' in parents and trashed=false"
+                results = service.files().list(
+                    q=query,
+                    pageSize=100,  # Processar em lotes de 100
+                    fields="nextPageToken, files(id, name, mimeType)",
+                    pageToken=page_token
+                ).execute()
+
+                files = results.get('files', [])
+                total_arquivos += len(files)
+
+                if not files:
+                    if page_token is None:  # Primeira página vazia
+                        logger.info(f"✓ {folder_name} já está vazia")
+                    break
+
+                logger.info(f"📁 Encontrados {len(files)} arquivo(s) na {folder_name} (página atual)")
+
+                # ✅ Remover cada arquivo
+                for file_item in files:
+                    file_id = file_item.get('id')
+                    file_name = file_item.get('name', 'Nome desconhecido')
+                    mime_type = file_item.get('mimeType', '')
+
+                    try:
+                        # Verificar se é uma pasta (não remover subpastas)
+                        if mime_type == 'application/vnd.google-apps.folder':
+                            logger.info(f"⏭️  Pulando subpasta: '{file_name}'")
+                            continue
+
+                        # Remover arquivo
+                        service.files().delete(fileId=file_id).execute()
+                        arquivos_removidos += 1
+                        logger.info(f"🗑️  Removido: '{file_name}' (ID: {file_id})")
+
+                    except HttpError as e:
+                        logger.error(f"❌ Erro HTTP ao remover '{file_name}': {e.resp.status} - {e.content.decode()}")
+                        arquivos_com_erro += 1
+                    except Exception as e:
+                        logger.error(f"❌ Erro inesperado ao remover '{file_name}': {e}")
+                        arquivos_com_erro += 1
+
+                # ✅ Verificar se há mais páginas
+                page_token = results.get('nextPageToken')
+                if not page_token:
+                    break
+
+            except HttpError as e:
+                logger.error(f"❌ Erro HTTP ao listar arquivos da {folder_name}: {e.resp.status} - {e.content.decode()}")
+                break
+            except Exception as e:
+                logger.error(f"❌ Erro inesperado ao listar arquivos da {folder_name}: {e}")
+                break
+
+        # ✅ Resultado final
+        logger.info(f"🧹 Limpeza da {folder_name} concluída:")
+        logger.info(f"   📊 Total encontrado: {total_arquivos} arquivo(s)")
+        logger.info(f"   ✅ Removidos: {arquivos_removidos} arquivo(s)")
+        logger.info(f"   ❌ Erros: {arquivos_com_erro} arquivo(s)")
+
+        return {
+            "arquivos_removidos": arquivos_removidos,
+            "arquivos_com_erro": arquivos_com_erro,
+            "total_encontrado": total_arquivos
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Erro crítico durante limpeza da {folder_name}: {e}")
+        return {
+            "arquivos_removidos": arquivos_removidos,
+            "arquivos_com_erro": arquivos_com_erro,
+            "erro": str(e)
+        }
+
+def clear_main_drive_folder(drive_service):
+    """
+    Limpa a pasta principal do Google Drive
+    
+    Args:
+        drive_service: Serviço do Google Drive
+        
+    Returns:
+        dict: Resultado da limpeza
+    """
+    target_folder_id = os.getenv('TARGET_FOLDER_ID')
+    if not target_folder_id:
+        logger.error("TARGET_FOLDER_ID não definido")
+        return {"arquivos_removidos": 0, "erro": "TARGET_FOLDER_ID não definido"}
+
+    return clear_drive_folder(drive_service, target_folder_id, "pasta principal")
+
+def clear_devolucaoar_drive_folder(drive_service):
+    """
+    Limpa a pasta de arquivo DevolucaoAR do Google Drive
+    
+    Args:
+        drive_service: Serviço do Google Drive
+        
+    Returns:
+        dict: Resultado da limpeza
+    """
+    target_folder_id = os.getenv('TARGET_FOLDER_ID_DEVOLUCAOAR_ARCHIVE')
+    if not target_folder_id:
+        logger.error("TARGET_FOLDER_ID_DEVOLUCAOAR_ARCHIVE não definido")
+        return {"arquivos_removidos": 0, "erro": "TARGET_FOLDER_ID_DEVOLUCAOAR_ARCHIVE não definido"}
+
+    return clear_drive_folder(drive_service, target_folder_id, "pasta DevolucaoAR")
+
 def upload_file_to_folder(service, local_file_path, folder_id, drive_filename=None):
     logger.info(f"NEW_OWNER_EMAIL: {NEW_OWNER_EMAIL}")
     """
